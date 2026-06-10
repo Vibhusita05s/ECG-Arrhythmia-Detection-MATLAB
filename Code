@@ -1,0 +1,120 @@
+clc;
+clear;
+close all;
+
+Fs = 360; % Sampling frequency
+
+%% STEP 1: LOAD DATASET
+
+data = readmatrix('mitbih_test (1).csv');
+
+% Combine multiple beats to form continuous ECG
+signal = data(1:100, 1:end-1); % take 100 beats
+signal = signal';
+signal = signal(:)'; % flatten to 1D signal
+
+t = (0:length(signal)-1)/Fs;
+
+%% STEP 2: PLOT RAW SIGNAL
+
+figure;
+plot(t, signal);
+title('Raw ECG Signal (MIT-BIH)');
+xlabel('Time (s)');
+ylabel('Amplitude');
+
+%% STEP 3: FILTERING
+
+[b,a] = butter(2, [0.5 40]/(Fs/2), 'bandpass');
+filtered = filtfilt(b, a, signal);
+
+n = min(1000, length(signal));
+
+figure;
+plot(t(1:n), signal(1:n), 'b'); hold on;
+plot(t(1:n), filtered(1:n), 'r');
+legend('Raw','Filtered');
+title('Filtering Effect');
+
+%% STEP 4: R-PEAK DETECTION
+
+[pks, locs] = findpeaks(filtered, ...
+    'MinPeakDistance', 0.6*Fs, ...
+    'MinPeakHeight', mean(filtered));
+
+figure;
+plot(t, filtered); hold on;
+plot(t(locs), pks, 'r*');
+title('R-Peak Detection');
+
+%% STEP 5: HEART RATE
+
+RR = diff(locs) / Fs;
+HR = 60 ./ RR;
+
+disp(['Average Heart Rate: ', num2str(mean(HR)), ' BPM']);
+
+%% STEP 6: ARRHYTHMIA DETECTION
+
+if std(RR) > 0.1
+    disp('Arrhythmia Detected');
+else
+    disp('Normal Rhythm');
+end
+
+%% STEP 7: FFT ANALYSIS
+
+Y = fft(filtered);
+f = (0:length(Y)-1)*(Fs/length(Y));
+
+figure;
+plot(f, abs(Y));
+xlim([0 50]);
+title('Frequency Spectrum');
+
+%% STEP 8: LIVE ECG MONITOR
+
+disp('Press any key to start Live ECG Monitor...');
+pause;
+
+figure;
+window = 3 * Fs;
+
+for i = 1:Fs/2:length(filtered)-window
+    
+    segment = filtered(i:i+window);
+    
+    [pks, locs] = findpeaks(segment, 'MinPeakDistance', 0.6*Fs);
+    
+    if length(locs) > 1
+        RR = diff(locs)/Fs;
+        HR_live = 60 / RR(end);
+    else
+        HR_live = 0;
+    end
+    
+    if HR_live > 100 || (length(locs) > 1 && std(diff(locs)/Fs) > 0.1)
+        plot(segment, 'r');
+        status = 'Abnormal';
+    else
+        plot(segment, 'g');
+        status = 'Normal';
+    end
+    
+    hold on;
+    plot(locs, pks, 'w*');
+    
+    text(10, max(segment), ['HR: ', num2str(HR_live, '%.1f'), ' BPM'], ...
+        'Color','cyan','FontSize',12);
+    
+    text(10, min(segment), status, ...
+        'Color','yellow','FontSize',12);
+    
+    title('Live ECG Monitor');
+    xlabel('Samples');
+    ylabel('Amplitude');
+    
+    hold off;
+    
+    pause(0.6);
+end
